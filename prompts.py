@@ -8,15 +8,93 @@ from typing import Optional, List
 
 
 def get_priority_guidance(priority: str) -> str:
-    """Get testing depth guidance based on priority level."""
+    """Get feature extraction guidance based on extension priority level."""
     priority_guidance = {
-        "Top": "CRITICAL extension requiring exhaustive coverage of absolutely everything. This has the most customer issues.",
-        "High": "Important extension requiring thorough coverage. Test as much as practically possible.",
-        "Medium": "Test the most important features and scenarios. Ensure critical functionality works.",
-        "Low": "Basic smoke testing to verify the extension works as expected.",
-        "N/A": "Should be covered by other extension tests."
+        "Top": """CRITICAL extension with the most customer issues. Extract EVERY capability:
+  - All features, sub-features, and minor functionality
+  - Every configuration option and setting
+  - All edge case scenarios (empty states, max limits, special characters, permissions)
+  - Error handling paths and validation rules
+  - All CRUD operations for every entity
+  - Integration points with other modules
+  - Admin AND user-facing functionality separately
+  (No ceiling - be as exhaustive as possible)""",
+        
+        "High": """Important extension requiring thorough extraction:
+  - All main features and significant sub-features
+  - Configuration options and settings
+  - Common edge cases (empty states, validation)
+  - Error scenarios for critical paths
+  - All CRUD operations
+  - Both admin and user-facing functionality
+  DO NOT: Extract every minor sub-feature or obscure configuration. Focus on significant functionality.""",
+        
+        "Medium": """Standard extension - extract core functionality:
+  - All primary features
+  - Key configuration options
+  - Main happy-path scenarios
+  - Basic validation and error cases
+  - Primary CRUD operations
+  DO NOT: Extract edge case scenarios, permission variations, integration points, or minor sub-features. Those are for High/Top priority.""",
+        
+        "Low": """Lower priority - extract main features only:
+  - Primary features that define the extension's purpose
+  - Basic functionality verification
+  - Core happy-path scenarios
+  DO NOT: Extract configuration options, error scenarios, edge cases, or sub-features. Keep it to the essentials.""",
+        
+        "N/A": """Minimal extraction - likely covered by other extensions:
+  - Only extract if there's unique, standalone functionality
+  - Focus on any features NOT covered elsewhere
+  DO NOT: Duplicate features covered by other extensions. Skip if nothing unique."""
     }
     return priority_guidance.get(priority, priority_guidance["Medium"])
+
+
+def get_feature_test_depth_guidance(priority: str) -> str:
+    """Get testing depth guidance based on feature priority level."""
+    test_depth_guidance = {
+        "Top": """EXHAUSTIVE testing required:
+  - Test EVERY scenario listed plus any you discover
+  - Test all edge cases: empty inputs, maximum lengths, special characters, boundary values
+  - Test error paths: what happens when things go wrong? Invalid input? Network issues?
+  - Test negative scenarios: unauthorized access, missing permissions, disabled states
+  - Test all CRUD operations if applicable (Create, Read, Update, Delete)
+  - Test with different data states: empty list, single item, many items
+  - Verify all validation messages and error feedback
+  - Test any keyboard shortcuts or alternative interaction methods
+  (No ceiling - test everything you can think of)""",
+        
+        "High": """THOROUGH testing required:
+  - Test all listed scenarios
+  - Test common edge cases: empty inputs, validation errors, boundary values
+  - Test primary error paths and how errors are displayed
+  - Test all CRUD operations if applicable
+  - Verify key validation messages
+  - Test with at least empty and populated data states
+  DO NOT: Test every possible edge case, permission variation, or alternative method. That's for Top priority.""",
+        
+        "Medium": """STANDARD testing required:
+  - Test all listed scenarios (happy paths)
+  - Test basic validation: required fields, format validation
+  - Test at least one error scenario
+  - Test primary CRUD operations if applicable
+  - Verify the feature works as described
+  DO NOT: Test edge cases beyond basic validation, test multiple data states, test negative scenarios, or explore beyond listed scenarios. That's for High/Top priority.""",
+        
+        "Low": """SMOKE testing required:
+  - Verify the feature loads and is accessible
+  - Test the primary/main action works
+  - Confirm basic functionality operates
+  - One happy-path test per scenario is sufficient
+  DO NOT: Test validation, test error scenarios, test edge cases, or go beyond basic "does it work?" verification. That's for higher priorities.""",
+        
+        "N/A": """MINIMAL testing:
+  - Verify the feature exists and loads
+  - One basic functionality check
+  DO NOT: Test functionality in depth. Just confirm it exists and loads."""
+    }
+    return test_depth_guidance.get(priority, test_depth_guidance["Medium"])
 
 
 def sanitize_filename(name: str) -> str:
@@ -123,6 +201,7 @@ def generate_feature_test_prompt(
     Generate a prompt for Step 2: Testing a specific feature.
     """
     sanitized_feature_name = sanitize_filename(feature_name)
+    feature_test_depth = get_feature_test_depth_guidance(feature_priority)
     
     prompt = f"""# Task: Test Feature "{feature_name}"
 
@@ -141,6 +220,9 @@ You are testing feature {feature_index + 1} of {total_features} for the Evoq ext
 - **UI Location**: {feature_ui_location or "Not specified - investigate in code"}
 - **Relevant Files**: {', '.join(feature_files) if feature_files else "See repository"}
 
+### Testing Depth for {feature_priority} Priority
+{feature_test_depth}
+
 ### Suggested Test Scenarios
 {chr(10).join(f"- {scenario}" for scenario in feature_test_scenarios) if feature_test_scenarios else "- Determine appropriate test scenarios from the code"}
 
@@ -151,6 +233,33 @@ You are testing feature {feature_index + 1} of {total_features} for the Evoq ext
 - **Website URL**: {v10_website_path}
 - **Superuser Credentials**: Username: {os.getenv("EVOQ_USERNAME")} / Password: {os.getenv("EVOQ_PASSWORD")}
 - **Code Location**: {repos_base_path}/{extension_repo}
+
+## Testing Philosophy (READ THIS CAREFULLY)
+
+### What Counts as a Test
+A test MUST involve:
+1. UI interaction (clicking, typing, navigating)
+2. Observable verification (something changed, appeared, or behaved as expected)
+
+A test is NOT:
+- Logging in (that's setup - verify login with ONE screenshot, then move on)
+- Reading code and saying "this should work"
+- Confirming a feature exists in code without UI evidence
+
+### Test Outcomes: PASS or FAIL Only
+Every test has exactly two outcomes:
+- **PASS**: The feature works as expected
+- **FAIL**: The feature does not work as expected
+
+"Blocked" is NOT a valid outcome. "N/A" is NOT a valid outcome.
+
+If you cannot test something:
+- **UI obstruction (popup/overlay)?** → Dismiss it, work around it, find alternative paths, or interact with underlying elements. Actually solve the problem.
+- **Feature exists in code but not visible in UI?** → Do NOT create a test for it. Add a note in the report under "Observations": "Code suggests X feature exists, but no UI element found to test it."
+- **Previous test failed?** → That does NOT block subsequent tests. Each test is independent. Reset state if needed and continue.
+
+### No Cascading Failures
+If Test A fails, Tests B/C/D are still tested independently. Do NOT mark tests as blocked because a prior test had issues. Find another path, reset the page, or start fresh. Every test gets a genuine attempt.
 
 ## CRITICAL: Browser Setup (DO THIS FIRST!)
 
@@ -164,13 +273,14 @@ This ensures all screenshots are large and readable. DO NOT SKIP THIS STEP!
 
 ## Instructions
 
-1. **FIRST: Resize Browser** - Use `browser_resize` to set viewport to 1920x1080
-2. **Review the Code**: Examine the relevant files to understand exactly how this feature works
-3. **Navigate to Feature**: Use Playwright MCP to navigate to the feature's location in the UI
-4. **Execute Test Scenarios**: Test each scenario systematically
-5. **Take Screenshots**: Capture EVERY step - before, during, and after each action
-6. **VERIFY Screenshots**: After EACH screenshot, use the Read tool to VIEW the image and confirm it captured the correct content
-7. **Document Results**: Note what worked, what failed, any issues found
+1. **FIRST: Resize Browser** - Use `browser_resize` to set viewport to 1280x720
+2. **Login (Setup, NOT a test)** - Log in using the provided credentials. Take ONE screenshot to confirm login succeeded. This is setup, not a test - do not include it in test results.
+3. **Review the Code**: Examine the relevant files to understand exactly how this feature works
+4. **Navigate to Feature**: Use Playwright MCP to navigate to the feature's location in the UI
+5. **Execute Test Scenarios**: Test each scenario systematically. Each test is independent.
+6. **Take Screenshots**: Capture EVERY step - before, during, and after each action
+7. **VERIFY Screenshots**: After EACH screenshot, use the Read tool to VIEW the image and confirm it captured the correct content
+8. **Document Results**: Note what worked, what failed, any issues found
 
 ## Screenshot Requirements (CRITICAL!)
 
@@ -211,18 +321,20 @@ The HTML should include:
    - What was tested
    - Steps taken
    - Screenshots (using `<img>` tags - copy from .playwright-mcp/ to {extension_name}_result/)
-   - Pass/Fail status
-   - Any issues or observations
+   - **PASS** or **FAIL** status (no other status allowed)
+   - Any issues found
+3. **Observations section** (at the end): For anything discovered but not testable via UI (e.g., "Code suggests feature X exists but no UI element found")
 
 Name the HTML file: `{sanitized_feature_name}_test_report.html`
 
 ## Summary Checklist
-- [ ] Browser resized to 1920x1080
+- [ ] Browser resized to 1280x720
+- [ ] Logged in (setup screenshot taken, NOT counted as a test)
 - [ ] Code reviewed for feature understanding
-- [ ] Each test scenario executed
+- [ ] Each test scenario executed independently (PASS/FAIL only)
 - [ ] Screenshot taken for each step
 - [ ] Each screenshot VERIFIED using Read tool
-- [ ] HTML report created with all screenshots
+- [ ] HTML report created with all screenshots and Observations section
 
 ULTRATHINK about the test approach before starting!
 """
